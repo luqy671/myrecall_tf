@@ -15,6 +15,7 @@ import tensorflow as tf
 from data_iterator import DataIterator
 from model import *
 from mymodel import *
+from model_SINE import *
 from tensorboardX import SummaryWriter
 
 parser = argparse.ArgumentParser()
@@ -24,12 +25,20 @@ parser.add_argument('--random_seed', type=int, default=19)
 parser.add_argument('--embedding_dim', type=int, default=64)
 parser.add_argument('--hidden_size', type=int, default=64)
 parser.add_argument('--num_interest', type=int, default=4)
+parser.add_argument('--cand_num', type=int, default=100)
 parser.add_argument('--model_type', type=str, default='none', help='DNN | GRU4REC | ..')
 parser.add_argument('--learning_rate', type=float, default=0.001, help='')
 parser.add_argument('--max_iter', type=int, default=1000, help='(k)')
 parser.add_argument('--patience', type=int, default=50)
-parser.add_argument('--coef', default=None)
 parser.add_argument('--topN', type=int, default=50)
+
+parser.add_argument('--f_mycand', action='store_false')
+parser.add_argument('--f_encoder', action='store_true')
+parser.add_argument('--f_trans', action='store_true')
+parser.add_argument('--trans_h', type=int, default=10)
+parser.add_argument('--trans_k', type=float, default=1.0)
+parser.add_argument('--f_auxloss', action='store_true')
+parser.add_argument('--loss_k', type=float, default=1.0)
 
 best_metric = 0
 
@@ -57,9 +66,11 @@ def compute_diversity(item_list, item_cate_map):
     diversity /= ((n-1) * n / 2)
     return diversity
 
-def evaluate_full(sess, test_data, model, model_path, batch_size, item_cate_map, save=True, coef=None):
+def evaluate_full(sess, test_data, model, model_path, batch_size, save=True):
+    
     topN = args.topN
-
+    
+    #item_embs = model.output_gru_item(sess)
     item_embs = model.output_item(sess)
 
     res = faiss.StandardGpuResources()
@@ -80,9 +91,9 @@ def evaluate_full(sess, test_data, model, model_path, batch_size, item_cate_map,
     total_diversity = 0.0
     for src, tgt in test_data:
         nick_id, item_id, hist_item, hist_mask = prepare_data(src, tgt)
-
+   
         user_embs = model.output_user(sess, [hist_item, hist_mask])
-
+    
         if len(user_embs.shape) == 2:
             D, I = gpu_index.search(user_embs, topN)
             for i, iid_list in enumerate(item_id):
@@ -100,49 +111,27 @@ def evaluate_full(sess, test_data, model, model_path, batch_size, item_cate_map,
                 if recall > 0:
                     total_ndcg += dcg / idcg
                     total_hitrate += 1
-                if not save:
-                    total_diversity += compute_diversity(I[i], item_cate_map)
+                #if not save:
+                    #total_diversity += compute_diversity(I[i], item_cate_map)
         else:
             ni = user_embs.shape[1]
-            user_embs = np.reshape(user_embs, [-1, user_embs.shape[-1]])
-            D, I = gpu_index.search(user_embs, topN)
+            user_embs = np.reshape(user_embs, [-1, user_embs.shape[-1]]) #(batch*intere_num,embed_dim)
+            D, I = gpu_index.search(user_embs, topN) #(batch*intere_num,topN)
+                
             for i, iid_list in enumerate(item_id):
                 recall = 0
                 dcg = 0.0
                 item_list_set = set()
                 item_cor_list = []
-                if coef is None:
-                    item_list = list(zip(np.reshape(I[i*ni:(i+1)*ni], -1), np.reshape(D[i*ni:(i+1)*ni], -1)))
-                    item_list.sort(key=lambda x:x[1], reverse=True)
-                    for j in range(len(item_list)):
-                        if item_list[j][0] not in item_list_set and item_list[j][0] != 0:
-                            item_list_set.add(item_list[j][0])
-                            item_cor_list.append(item_list[j][0])
-                            if len(item_list_set) >= topN:
-                                break
-                else:
-                    origin_item_list = list(zip(np.reshape(I[i*ni:(i+1)*ni], -1), np.reshape(D[i*ni:(i+1)*ni], -1)))
-                    origin_item_list.sort(key=lambda x:x[1], reverse=True)
-                    item_list = []
-                    tmp_item_set = set()
-                    for (x, y) in origin_item_list:
-                        if x not in tmp_item_set and x in item_cate_map:
-                            item_list.append((x, y, item_cate_map[x]))
-                            tmp_item_set.add(x)
-                    cate_dict = defaultdict(int)
-                    for j in range(topN):
-                        max_index = 0
-                        max_score = item_list[0][1] - coef * cate_dict[item_list[0][2]]
-                        for k in range(1, len(item_list)):
-                            if item_list[k][1] - coef * cate_dict[item_list[k][2]] > max_score:
-                                max_index = k
-                                max_score = item_list[k][1] - coef * cate_dict[item_list[k][2]]
-                            elif item_list[k][1] < max_score:
-                                break
-                        item_list_set.add(item_list[max_index][0])
-                        item_cor_list.append(item_list[max_index][0])
-                        cate_dict[item_list[max_index][2]] += 1
-                        item_list.pop(max_index)
+                
+                item_list = list(zip(np.reshape(I[i*ni:(i+1)*ni], -1), np.reshape(D[i*ni:(i+1)*ni], -1)))
+                item_list.sort(key=lambda x:x[1], reverse=True)
+                for j in range(len(item_list)):
+                    if item_list[j][0] not in item_list_set and item_list[j][0] != 0:
+                        item_list_set.add(item_list[j][0])
+                        item_cor_list.append(item_list[j][0])
+                        if len(item_list_set) >= topN:
+                            break
 
                 true_item_set = set(iid_list)
                 for no, iid in enumerate(item_cor_list):
@@ -156,8 +145,8 @@ def evaluate_full(sess, test_data, model, model_path, batch_size, item_cate_map,
                 if recall > 0:
                     total_ndcg += dcg / idcg
                     total_hitrate += 1
-                if not save:
-                    total_diversity += compute_diversity(list(item_list_set), item_cate_map)
+                #if not save:
+                    #total_diversity += compute_diversity(list(item_list_set), item_cate_map)
         
         total += len(item_id)
     
@@ -177,26 +166,39 @@ def get_model(dataset, model_type, item_count, batch_size, maxlen):
         model = Model_GRU4REC(item_count, args.embedding_dim, args.hidden_size, batch_size, maxlen)
     elif model_type == 'MIND':
         relu_layer = True if dataset == 'book' else False
-        model = Model_MIND(item_count, args.embedding_dim, args.hidden_size, batch_size, args.num_interest, maxlen, relu_layer=relu_layer)
+        model = Model_MIND(item_count, args.embedding_dim, args.hidden_size, batch_size, 4, maxlen, relu_layer=relu_layer)
     elif model_type == 'ComiRec-DR':
-        model = Model_ComiRec_DR(item_count, args.embedding_dim, args.hidden_size, batch_size, args.num_interest, maxlen)
+        model = Model_ComiRec_DR(item_count, args.embedding_dim, args.hidden_size, batch_size, 4, maxlen)
     elif model_type == 'ComiRec-SA':
-        model = Model_ComiRec_SA(item_count, args.embedding_dim, args.hidden_size, batch_size, args.num_interest, maxlen)
+        model = Model_ComiRec_SA(item_count, args.embedding_dim, args.hidden_size, batch_size, 4, maxlen)
     elif model_type == 'Mine':
-        model = Model_Mine(item_count, args.embedding_dim, args.hidden_size, batch_size, args.num_interest, maxlen)
+        model = Model_Mine(item_count, args.embedding_dim, args.hidden_size, batch_size, args.num_interest, args.cand_num, maxlen, args.f_mycand, args.f_encoder, args.f_trans, args.trans_h, args.trans_k, args.f_auxloss, args.loss_k)
+    elif model_type == 'SINE':
+        model = Model_SINE(item_count, args.embedding_dim, args.hidden_size, batch_size, 4, maxlen)
     else:
         print ("Invalid model_type : %s", model_type)
         return
     return model
 
 def get_exp_name(dataset, model_type, batch_size, lr, maxlen, save=True):
-    extra_name = 'exp_'
+    #extr_name = input('Please input the experiment name: ')
+    #para_name = '_'.join([dataset, model_type, 'b'+str(batch_size), 'lr'+str(lr), 'd'+str(args.embedding_dim), 'len'+str(maxlen)])
+    #exp_name = para_name + '_' + extr_name
+    
+    extra_name = 'default_'
     cnt = 0
     while os.path.exists('best_model/' + extra_name + str(cnt)) and save:
         cnt +=1
+        '''
+        flag = input('The exp name already exists. Do you want to cover? (y/n)')
+        if flag == 'y' or flag == 'Y':
+            shutil.rmtree('runs/' + exp_name)
+            break
+        else:
+            extr_name = input('Please input the experiment name: ')
+            exp_name = para_name + '_' + extr_name
+        '''
     exp_name = extra_name + str(cnt)
-    return exp_name
-
     return exp_name
 
 def train(
@@ -222,7 +224,7 @@ def train(
 
     #writer = SummaryWriter('runs/' + exp_name)
 
-    item_cate_map = load_item_cate(cate_file)
+    #item_cate_map = load_item_cate(cate_file)
 
     with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
         train_data = DataIterator(train_file, batch_size, maxlen, train_flag=0)
@@ -243,14 +245,15 @@ def train(
             trials = 0
 
             for src, tgt in train_data:
-                data_iter = prepare_data(src, tgt)
+                data_iter = prepare_data(src, tgt) #nick_id(batch), item_id(batch), hist_item(batch,max_len), hist_mask(batch,max_len)
+                #loss = model.print_check(sess,  list(data_iter) + [lr])
                 loss = model.train(sess, list(data_iter) + [lr])
                 
                 loss_sum += loss
                 iter += 1
 
                 if iter % test_iter == 0:
-                    metrics = evaluate_full(sess, valid_data, model, best_model_path, batch_size, item_cate_map)
+                    metrics = evaluate_full(sess, valid_data, model, best_model_path, batch_size)
                     log_str = 'iter: %d, train loss: %.4f' % (iter, loss_sum / test_iter)
                     if metrics != {}:
                         log_str += ', ' + ', '.join(['valid ' + key + ': %.6f' % value for key, value in metrics.items()])
@@ -287,11 +290,11 @@ def train(
 
         model.restore(sess, best_model_path)
 
-        metrics = evaluate_full(sess, valid_data, model, best_model_path, batch_size, item_cate_map, save=False)
+        metrics = evaluate_full(sess, valid_data, model, best_model_path, batch_size, save=False)
         print(', '.join(['valid ' + key + ': %.6f' % value for key, value in metrics.items()]))
 
         test_data = DataIterator(test_file, batch_size, maxlen, train_flag=2)
-        metrics = evaluate_full(sess, test_data, model, best_model_path, batch_size, item_cate_map, save=False)
+        metrics = evaluate_full(sess, test_data, model, best_model_path, batch_size, save=False)
         print(', '.join(['test ' + key + ': %.6f' % value for key, value in metrics.items()]))
 
 def test(
@@ -308,13 +311,12 @@ def test(
     best_model_path = "best_model/" + exp_name + '/'
     gpu_options = tf.GPUOptions(allow_growth=True)
     model = get_model(dataset, model_type, item_count, batch_size, maxlen)
-    item_cate_map = load_item_cate(cate_file)
 
     with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
         model.restore(sess, best_model_path)
         
         test_data = DataIterator(test_file, batch_size, maxlen, train_flag=2)
-        metrics = evaluate_full(sess, test_data, model, best_model_path, batch_size, item_cate_map, save=False, coef=args.coef)
+        metrics = evaluate_full(sess, test_data, model, best_model_path, batch_size, save=False)
         print(', '.join(['test ' + key + ': %.6f' % value for key, value in metrics.items()]))
 
 def output(
@@ -356,7 +358,31 @@ if __name__ == '__main__':
         test_iter = 500
     elif args.dataset == 'book':
         path = './data/book_data/'
+        item_count = 703122
+        batch_size = 128
+        maxlen = 20
+        test_iter = 1000
+    elif args.dataset == 'book14':
+        path = './data/book14_data/'
         item_count = 367983
+        batch_size = 128
+        maxlen = 20
+        test_iter = 1000
+    elif args.dataset == 'movie':
+        path = './data/movie_data/'
+        item_count = 59945
+        batch_size = 128
+        maxlen = 20
+        test_iter = 1000
+    elif args.dataset == 'movie1':
+        path = './data/movie1_data/'
+        item_count = 89591
+        batch_size = 128
+        maxlen = 20
+        test_iter = 1000
+    elif args.dataset == 'elec':
+        path = './data/elec_data/'
+        item_count = 159749
         batch_size = 128
         maxlen = 20
         test_iter = 1000

@@ -1,0 +1,22 @@
+cand1
+self.W3 = tf.get_variable("W3", [cand_num], trainable=True) #(cand_num) 
+mean_eb = tf.reduce_mean(self.mid_embeddings_var, axis=0) #(embed_dim)
+candidates = tf.einsum('i,j->ij',self.W3, mean_eb) #(cand_num, embed_dim)
+self.candidates = tf.math.tanh(tf.einsum('ij,jk->ik',candidates, self.W1))#(cand_num, att_dim)
+            
+cand2
+self.W3_1 = tf.get_variable("W3_1", [4], trainable=True) #(4)
+self.W3_2 = tf.get_variable("W3_2", [4, cand_num], trainable=True) #(4,cand_num)
+self.W3 = tf.einsum('i,ij->j',self.W3_1, self.W3_2) #(cand_num)   
+mean_eb = tf.reduce_mean(self.mid_embeddings_var, axis=0) #(embed_dim)
+candidates = tf.einsum('i,j->ij',self.W3, mean_eb) #(cand_num, embed_dim)
+self.candidates = tf.math.tanh(tf.einsum('ij,jk->ik',candidates, self.W1))#(cand_num, att_dim)
+
+cand3
+k_num = int(n_mid/num_interest)
+all_embeds = self.mid_embeddings_var[:k_num*num_interest, :]
+all_embeds = tf.reshape(all_embeds, [num_interest, k_num, -1])
+mean_eb = tf.reduce_mean(all_embeds, axis=1) #(intere_num,embed_dim)
+self.W3 = tf.get_variable("W3", [num_interest, cand_num], trainable=True) #(intere_num, cand_num)           
+candidates = tf.einsum('ij,ik->jk',self.W3, mean_eb) #(cand_num, embed_dim)
+self.candidates = tf.math.tanh(tf.einsum('ij,jk->ik',candidates, self.W1))#(cand_num, att_dim)

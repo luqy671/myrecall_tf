@@ -25,7 +25,18 @@ def read_from_amazon(source):
             item_count[iid] += 1
             ts = float(r['unixReviewTime'])
             users[uid].append((iid, ts))
-
+            
+def read_from_amazon1(source):
+    with open(source, 'r') as f:
+        for line in f:
+            conts = line.strip().split(',')
+            if(len(conts)<4):
+                continue
+            uid = str(conts[1])
+            iid = str(conts[0])
+            item_count[iid] += 1
+            ts = float(conts[3])
+            users[uid].append((iid, ts))
 def read_from_taobao(source):
     with open(source, 'r') as f:
         for line in f:
@@ -37,12 +48,35 @@ def read_from_taobao(source):
             item_count[iid] += 1
             ts = int(conts[4])
             users[uid].append((iid, ts))
+            
+def read_from_ML(source):
+    head = True
+    with open(source, 'r') as f:
+        for line in f:
+            if head:
+                head = False
+                continue
+            conts = line.strip().split(',')
+            uid = int(conts[0])
+            iid = int(conts[1])
+            item_count[iid] += 1
+            ts = float(conts[2])
+            users[uid].append((iid, ts))
 
 
 if name == 'book':
-    read_from_amazon('reviews_Books_5.json')
+    read_from_amazon('../Books_5.json')
 elif name == 'taobao':
-    read_from_taobao('UserBehavior.csv')
+    read_from_taobao('../UserBehavior.csv')
+elif name == 'movie':
+    read_from_amazon('../Movies_and_TV_5.json')
+elif name == 'elec':
+    read_from_amazon('../Electronics_5.json')
+elif name == 'movie1':
+    read_from_amazon1('../Movies_and_TV.csv')
+elif name == 'elec1':
+    read_from_amazon1('../Electronics.csv')
+
 
 items = list(item_count.items())
 items.sort(key=lambda x:x[1], reverse=True)
@@ -109,3 +143,4 @@ total_train = export_data(path + name + '_train.txt', train_users)
 total_valid = export_data(path + name + '_valid.txt', valid_users)
 total_test = export_data(path + name + '_test.txt', test_users)
 print('total behaviors: ', total_train + total_valid + total_test)
+print('user num: {}  item num: {}'.format(num_users, item_total))

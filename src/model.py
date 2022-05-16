@@ -226,7 +226,7 @@ class Model_ComiRec_SA(Model):
 
         num_heads = num_interest
         with tf.variable_scope("self_atten", reuse=tf.AUTO_REUSE) as scope:
-            item_hidden = tf.layers.dense(item_list_add_pos, hidden_size * 4, activation=tf.nn.tanh)
+            item_hidden = tf.layers.dense(item_list_add_pos, hidden_size, activation=tf.nn.tanh)
             item_att_w  = tf.layers.dense(item_hidden, num_heads, activation=None)
             item_att_w  = tf.transpose(item_att_w, [0, 2, 1])
 

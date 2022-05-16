@@ -14,7 +14,7 @@ with open('./data/%s_data/%s_item_map.txt' % (name, name), 'r') as f:
         item_map[conts[0]] = conts[1]
 
 if name == 'taobao':
-    with open('UserBehavior.csv', 'r') as f:
+    with open('../UserBehavior.csv', 'r') as f:
         for line in f:
             conts = line.strip().split(',')
             iid = conts[1]
@@ -26,14 +26,17 @@ if name == 'taobao':
                     cate_map[cid] = len(cate_map) + 1
                 item_cate[item_map[iid]] = cate_map[cid]
 elif name == 'book':
-    with open('meta_Books.json', 'r') as f:
+    with open('../meta_Books.json', 'r') as f:
         for line in f:
             r = eval(line.strip())
             iid = r['asin']
-            cates = r['categories']
+            cates = r['category']
             if iid not in item_map:
                 continue
-            cate = cates[0][-1]
+            if len(cates)>0:
+                cate = cates[-1]
+            else:
+                cate = 'None'
             if cate not in cate_map:
                 cate_map[cate] = len(cate_map) + 1
             item_cate[item_map[iid]] = cate_map[cate]
